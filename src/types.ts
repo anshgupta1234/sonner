@@ -155,12 +155,10 @@ export interface ToastProps {
   invert: boolean;
   heights: HeightT[];
   setHeights: React.Dispatch<React.SetStateAction<HeightT[]>>;
-  removeToast: (toast: ToastT) => void;
   gap?: number;
   position: Position;
   visibleToasts: number;
   expandByDefault: boolean;
-  closeButton: boolean;
   interacting: boolean;
   style?: React.CSSProperties;
   cancelButtonStyle?: React.CSSProperties;

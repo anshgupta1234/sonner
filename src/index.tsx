@@ -3,7 +3,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 
-import { CloseIcon, getAsset, Loader } from './assets';
+import { getAsset, Loader } from './assets';
 import { useIsDocumentHidden } from './hooks';
 import { toast, ToastState } from './state';
 import './styles.css';
@@ -27,38 +27,14 @@ const VIEWPORT_OFFSET = '24px';
 // Mobile viewport padding
 const MOBILE_VIEWPORT_OFFSET = '16px';
 
-// Default lifetime of a toasts (in ms)
-const TOAST_LIFETIME = 4000;
-
 // Default toast width
 const TOAST_WIDTH = 356;
 
 // Default gap between toasts
 const GAP = 14;
 
-// Threshold to dismiss a toast
-const SWIPE_THRESHOLD = 45;
-
-// Equal to exit animation duration
-const TIME_BEFORE_UNMOUNT = 200;
-
 function cn(...classes: (string | undefined)[]) {
   return classes.filter(Boolean).join(' ');
-}
-
-function getDefaultSwipeDirections(position: string): Array<SwipeDirection> {
-  const [y, x] = position.split('-');
-  const directions: Array<SwipeDirection> = [];
-
-  if (y) {
-    directions.push(y as SwipeDirection);
-  }
-
-  if (x) {
-    directions.push(x as SwipeDirection);
-  }
-
-  return directions;
 }
 
 const Toast = (props: ToastProps) => {
@@ -73,38 +49,24 @@ const Toast = (props: ToastProps) => {
     index,
     toasts,
     expanded,
-    removeToast,
     defaultRichColors,
-    closeButton: closeButtonFromToaster,
     style,
     cancelButtonStyle,
     actionButtonStyle,
     className = '',
     descriptionClassName = '',
-    duration: durationFromToaster,
     position,
     gap,
     expandByDefault,
     classNames,
     icons,
-    closeButtonAriaLabel = 'Close toast',
   } = props;
-  const [swipeDirection, setSwipeDirection] = React.useState<'x' | 'y' | null>(null);
-  const [swipeOutDirection, setSwipeOutDirection] = React.useState<'left' | 'right' | 'up' | 'down' | null>(null);
   const [mounted, setMounted] = React.useState(false);
-  const [removed, setRemoved] = React.useState(false);
-  const [swiping, setSwiping] = React.useState(false);
-  const [swipeOut, setSwipeOut] = React.useState(false);
-  const [isSwiped, setIsSwiped] = React.useState(false);
-  const [offsetBeforeRemove, setOffsetBeforeRemove] = React.useState(0);
   const [initialHeight, setInitialHeight] = React.useState(0);
-  const remainingTime = React.useRef(toast.duration || durationFromToaster || TOAST_LIFETIME);
-  const dragStartTime = React.useRef<Date | null>(null);
   const toastRef = React.useRef<HTMLLIElement>(null);
   const isFront = index === 0;
-  const isVisible = index + 1 <= visibleToasts;
+  const isVisible = expanded || index + 1 <= visibleToasts;
   const toastType = toast.type;
-  const dismissible = toast.dismissible !== false;
   const toastClassname = toast.className || '';
   const toastDescriptionClassname = toast.descriptionClassName || '';
   // Height index is used to calculate the offset as it gets updated before the toast array, which means we can calculate the new layout faster.
@@ -112,18 +74,7 @@ const Toast = (props: ToastProps) => {
     () => heights.findIndex((height) => height.toastId === toast.id) || 0,
     [heights, toast.id],
   );
-  const closeButton = React.useMemo(
-    () => toast.closeButton ?? closeButtonFromToaster,
-    [toast.closeButton, closeButtonFromToaster],
-  );
-  const duration = React.useMemo(
-    () => toast.duration || durationFromToaster || TOAST_LIFETIME,
-    [toast.duration, durationFromToaster],
-  );
-  const closeTimerStartTimeRef = React.useRef(0);
   const offset = React.useRef(0);
-  const lastCloseTimerStartTimeRef = React.useRef(0);
-  const pointerStartRef = React.useRef<{ x: number; y: number } | null>(null);
   const [y, x] = position.split('-');
   const toastsHeightBefore = React.useMemo(() => {
     return heights.reduce((prev, curr, reducerIndex) => {
@@ -135,16 +86,11 @@ const Toast = (props: ToastProps) => {
       return prev + curr.height;
     }, 0);
   }, [heights, heightIndex]);
-  const isDocumentHidden = useIsDocumentHidden();
 
   const invert = toast.invert || ToasterInvert;
   const disabled = toastType === 'loading';
 
   offset.current = React.useMemo(() => heightIndex * gap + toastsHeightBefore, [heightIndex, toastsHeightBefore]);
-
-  React.useEffect(() => {
-    remainingTime.current = duration;
-  }, [duration]);
 
   React.useEffect(() => {
     // Trigger enter animation without using CSS animation
@@ -183,64 +129,6 @@ const Toast = (props: ToastProps) => {
     });
   }, [mounted, toast.title, toast.description, setHeights, toast.id, toast.jsx, toast.action, toast.cancel]);
 
-  const deleteToast = React.useCallback(() => {
-    // Save the offset for the exit swipe animation
-    setRemoved(true);
-    setOffsetBeforeRemove(offset.current);
-    setHeights((h) => h.filter((height) => height.toastId !== toast.id));
-
-    setTimeout(() => {
-      removeToast(toast);
-    }, TIME_BEFORE_UNMOUNT);
-  }, [toast, removeToast, setHeights, offset]);
-
-  React.useEffect(() => {
-    if ((toast.promise && toastType === 'loading') || toast.duration === Infinity || toast.type === 'loading') return;
-    let timeoutId: NodeJS.Timeout;
-
-    // Pause the timer on each hover
-    const pauseTimer = () => {
-      if (lastCloseTimerStartTimeRef.current < closeTimerStartTimeRef.current) {
-        // Get the elapsed time since the timer started
-        const elapsedTime = new Date().getTime() - closeTimerStartTimeRef.current;
-
-        remainingTime.current = remainingTime.current - elapsedTime;
-      }
-
-      lastCloseTimerStartTimeRef.current = new Date().getTime();
-    };
-
-    const startTimer = () => {
-      // setTimeout(, Infinity) behaves as if the delay is 0.
-      // As a result, the toast would be closed immediately, giving the appearance that it was never rendered.
-      // See: https://github.com/denysdovhan/wtfjs?tab=readme-ov-file#an-infinite-timeout
-      if (remainingTime.current === Infinity) return;
-
-      closeTimerStartTimeRef.current = new Date().getTime();
-
-      // Let the toast know it has started
-      timeoutId = setTimeout(() => {
-        toast.onAutoClose?.(toast);
-        deleteToast();
-      }, remainingTime.current);
-    };
-
-    if (expanded || interacting || isDocumentHidden) {
-      pauseTimer();
-    } else {
-      startTimer();
-    }
-
-    return () => clearTimeout(timeoutId);
-  }, [expanded, interacting, toast, toastType, isDocumentHidden, deleteToast]);
-
-  React.useEffect(() => {
-    if (toast.delete) {
-      deleteToast();
-      toast.onDismiss?.(toast);
-    }
-  }, [deleteToast, toast.delete]);
-
   function getLoadingIcon() {
     if (icons?.loading) {
       return (
@@ -276,162 +164,26 @@ const Toast = (props: ToastProps) => {
       data-styled={!Boolean(toast.jsx || toast.unstyled || unstyled)}
       data-mounted={mounted}
       data-promise={Boolean(toast.promise)}
-      data-swiped={isSwiped}
-      data-removed={removed}
       data-visible={isVisible}
       data-y-position={y}
       data-x-position={x}
       data-index={index}
       data-front={isFront}
-      data-swiping={swiping}
-      data-dismissible={dismissible}
       data-type={toastType}
       data-invert={invert}
-      data-swipe-out={swipeOut}
-      data-swipe-direction={swipeOutDirection}
       data-expanded={Boolean(expanded || (expandByDefault && mounted))}
       style={
         {
           '--index': index,
           '--toasts-before': index,
           '--z-index': toasts.length - index,
-          '--offset': `${removed ? offsetBeforeRemove : offset.current}px`,
+          '--offset': `${offset.current}px`,
           '--initial-height': expandByDefault ? 'auto' : `${initialHeight}px`,
           ...style,
           ...toast.style,
         } as React.CSSProperties
       }
-      onDragEnd={() => {
-        setSwiping(false);
-        setSwipeDirection(null);
-        pointerStartRef.current = null;
-      }}
-      onPointerDown={(event) => {
-        if (disabled || !dismissible) return;
-        dragStartTime.current = new Date();
-        setOffsetBeforeRemove(offset.current);
-        // Ensure we maintain correct pointer capture even when going outside of the toast (e.g. when swiping)
-        (event.target as HTMLElement).setPointerCapture(event.pointerId);
-        if ((event.target as HTMLElement).tagName === 'BUTTON') return;
-        setSwiping(true);
-        pointerStartRef.current = { x: event.clientX, y: event.clientY };
-      }}
-      onPointerUp={() => {
-        if (swipeOut || !dismissible) return;
-
-        pointerStartRef.current = null;
-        const swipeAmountX = Number(
-          toastRef.current?.style.getPropertyValue('--swipe-amount-x').replace('px', '') || 0,
-        );
-        const swipeAmountY = Number(
-          toastRef.current?.style.getPropertyValue('--swipe-amount-y').replace('px', '') || 0,
-        );
-        const timeTaken = new Date().getTime() - dragStartTime.current?.getTime();
-
-        const swipeAmount = swipeDirection === 'x' ? swipeAmountX : swipeAmountY;
-        const velocity = Math.abs(swipeAmount) / timeTaken;
-
-        if (Math.abs(swipeAmount) >= SWIPE_THRESHOLD || velocity > 0.11) {
-          setOffsetBeforeRemove(offset.current);
-
-          toast.onDismiss?.(toast);
-
-          if (swipeDirection === 'x') {
-            setSwipeOutDirection(swipeAmountX > 0 ? 'right' : 'left');
-          } else {
-            setSwipeOutDirection(swipeAmountY > 0 ? 'down' : 'up');
-          }
-
-          deleteToast();
-          setSwipeOut(true);
-
-          return;
-        } else {
-          toastRef.current?.style.setProperty('--swipe-amount-x', `0px`);
-          toastRef.current?.style.setProperty('--swipe-amount-y', `0px`);
-        }
-        setIsSwiped(false);
-        setSwiping(false);
-        setSwipeDirection(null);
-      }}
-      onPointerMove={(event) => {
-        if (!pointerStartRef.current || !dismissible) return;
-
-        const isHighlighted = window.getSelection()?.toString().length > 0;
-        if (isHighlighted) return;
-
-        const yDelta = event.clientY - pointerStartRef.current.y;
-        const xDelta = event.clientX - pointerStartRef.current.x;
-
-        const swipeDirections = props.swipeDirections ?? getDefaultSwipeDirections(position);
-
-        // Determine swipe direction if not already locked
-        if (!swipeDirection && (Math.abs(xDelta) > 1 || Math.abs(yDelta) > 1)) {
-          setSwipeDirection(Math.abs(xDelta) > Math.abs(yDelta) ? 'x' : 'y');
-        }
-
-        let swipeAmount = { x: 0, y: 0 };
-
-        const getDampening = (delta: number) => {
-          const factor = Math.abs(delta) / 20;
-
-          return 1 / (1.5 + factor);
-        };
-
-        // Only apply swipe in the locked direction
-        if (swipeDirection === 'y') {
-          // Handle vertical swipes
-          if (swipeDirections.includes('top') || swipeDirections.includes('bottom')) {
-            if ((swipeDirections.includes('top') && yDelta < 0) || (swipeDirections.includes('bottom') && yDelta > 0)) {
-              swipeAmount.y = yDelta;
-            } else {
-              // Smoothly transition to dampened movement
-              const dampenedDelta = yDelta * getDampening(yDelta);
-              // Ensure we don't jump when transitioning to dampened movement
-              swipeAmount.y = Math.abs(dampenedDelta) < Math.abs(yDelta) ? dampenedDelta : yDelta;
-            }
-          }
-        } else if (swipeDirection === 'x') {
-          // Handle horizontal swipes
-          if (swipeDirections.includes('left') || swipeDirections.includes('right')) {
-            if ((swipeDirections.includes('left') && xDelta < 0) || (swipeDirections.includes('right') && xDelta > 0)) {
-              swipeAmount.x = xDelta;
-            } else {
-              // Smoothly transition to dampened movement
-              const dampenedDelta = xDelta * getDampening(xDelta);
-              // Ensure we don't jump when transitioning to dampened movement
-              swipeAmount.x = Math.abs(dampenedDelta) < Math.abs(xDelta) ? dampenedDelta : xDelta;
-            }
-          }
-        }
-
-        if (Math.abs(swipeAmount.x) > 0 || Math.abs(swipeAmount.y) > 0) {
-          setIsSwiped(true);
-        }
-
-        // Apply transform using both x and y values
-        toastRef.current?.style.setProperty('--swipe-amount-x', `${swipeAmount.x}px`);
-        toastRef.current?.style.setProperty('--swipe-amount-y', `${swipeAmount.y}px`);
-      }}
     >
-      {closeButton && !toast.jsx && toastType !== 'loading' ? (
-        <button
-          aria-label={closeButtonAriaLabel}
-          data-disabled={disabled}
-          data-close-button
-          onClick={
-            disabled || !dismissible
-              ? () => {}
-              : () => {
-                  deleteToast();
-                  toast.onDismiss?.(toast);
-                }
-          }
-          className={cn(classNames?.closeButton, toast?.classNames?.closeButton)}
-        >
-          {icons?.close ?? CloseIcon}
-        </button>
-      ) : null}
       {/* TODO: This can be cleaner */}
       {(toastType || toast.icon || toast.promise) &&
       toast.icon !== null &&
@@ -470,9 +222,7 @@ const Toast = (props: ToastProps) => {
           onClick={(event) => {
             // We need to check twice because typescript
             if (!isAction(toast.cancel)) return;
-            if (!dismissible) return;
             toast.cancel.onClick?.(event);
-            deleteToast();
           }}
           className={cn(classNames?.cancelButton, toast?.classNames?.cancelButton)}
         >
@@ -490,8 +240,6 @@ const Toast = (props: ToastProps) => {
             // We need to check twice because typescript
             if (!isAction(toast.action)) return;
             toast.action.onClick?.(event);
-            if (event.defaultPrevented) return;
-            deleteToast();
           }}
           className={cn(classNames?.actionButton, toast?.classNames?.actionButton)}
         >
@@ -552,15 +300,6 @@ function useSonner() {
 
   React.useEffect(() => {
     return ToastState.subscribe((toast) => {
-      if ((toast as ToastToDismiss).dismiss) {
-        setTimeout(() => {
-          ReactDOM.flushSync(() => {
-            setActiveToasts((toasts) => toasts.filter((t) => t.id !== toast.id));
-          });
-        });
-        return;
-      }
-
       // Prevent batching, temp solution.
       setTimeout(() => {
         ReactDOM.flushSync(() => {
@@ -594,13 +333,11 @@ const Toaster = React.forwardRef<HTMLElement, ToasterProps>(function Toaster(pro
     position = 'bottom-right',
     hotkey = ['altKey', 'KeyT'],
     expand,
-    closeButton,
     className,
     offset,
     mobileOffset,
     theme = 'light',
     richColors,
-    duration,
     style,
     visibleToasts = VISIBLE_TOASTS_AMOUNT,
     toastOptions,
@@ -633,26 +370,8 @@ const Toaster = React.forwardRef<HTMLElement, ToasterProps>(function Toaster(pro
   const lastFocusedElementRef = React.useRef<HTMLElement>(null);
   const isFocusWithinRef = React.useRef(false);
 
-  const removeToast = React.useCallback((toastToRemove: ToastT) => {
-    setToasts((toasts) => {
-      if (!toasts.find((toast) => toast.id === toastToRemove.id)?.delete) {
-        ToastState.dismiss(toastToRemove.id);
-      }
-
-      return toasts.filter(({ id }) => id !== toastToRemove.id);
-    });
-  }, []);
-
   React.useEffect(() => {
     return ToastState.subscribe((toast) => {
-      if ((toast as ToastToDismiss).dismiss) {
-        // Prevent batching of other state updates
-        requestAnimationFrame(() => {
-          setToasts((toasts) => toasts.map((t) => (t.id === toast.id ? { ...t, delete: true } : t)));
-        });
-        return;
-      }
-
       // Prevent batching, temp solution.
       setTimeout(() => {
         ReactDOM.flushSync(() => {
@@ -787,9 +506,12 @@ const Toaster = React.forwardRef<HTMLElement, ToasterProps>(function Toaster(pro
             data-sonner-theme={actualTheme}
             data-y-position={y}
             data-x-position={x}
+            data-expanded={expanded || expand}
+            data-theme={actualTheme}
+            data-rich-colors={richColors}
             style={
               {
-                '--front-toast-height': `${heights[0]?.height || 0}px`,
+                '--front-toast-height': expanded || expand ? 'auto' : `${heights[0]?.height || 0}px`,
                 '--width': `${TOAST_WIDTH}px`,
                 '--gap': `${gap}px`,
                 ...style,
@@ -806,11 +528,6 @@ const Toaster = React.forwardRef<HTMLElement, ToasterProps>(function Toaster(pro
               }
             }}
             onFocus={(event) => {
-              const isNotDismissible =
-                event.target instanceof HTMLElement && event.target.dataset.dismissible === 'false';
-
-              if (isNotDismissible) return;
-
               if (!isFocusWithinRef.current) {
                 isFocusWithinRef.current = true;
                 lastFocusedElementRef.current = event.relatedTarget as HTMLElement;
@@ -825,13 +542,7 @@ const Toaster = React.forwardRef<HTMLElement, ToasterProps>(function Toaster(pro
               }
             }}
             onDragEnd={() => setExpanded(false)}
-            onPointerDown={(event) => {
-              const isNotDismissible =
-                event.target instanceof HTMLElement && event.target.dataset.dismissible === 'false';
-
-              if (isNotDismissible) return;
-              setInteracting(true);
-            }}
+            onPointerDown={() => setInteracting(true)}
             onPointerUp={() => setInteracting(false)}
           >
             {toasts
@@ -843,12 +554,10 @@ const Toaster = React.forwardRef<HTMLElement, ToasterProps>(function Toaster(pro
                   index={index}
                   toast={toast}
                   defaultRichColors={richColors}
-                  duration={toastOptions?.duration ?? duration}
                   className={toastOptions?.className}
                   descriptionClassName={toastOptions?.descriptionClassName}
                   invert={invert}
                   visibleToasts={visibleToasts}
-                  closeButton={toastOptions?.closeButton ?? closeButton}
                   interacting={interacting}
                   position={position}
                   style={toastOptions?.style}
@@ -856,15 +565,12 @@ const Toaster = React.forwardRef<HTMLElement, ToasterProps>(function Toaster(pro
                   classNames={toastOptions?.classNames}
                   cancelButtonStyle={toastOptions?.cancelButtonStyle}
                   actionButtonStyle={toastOptions?.actionButtonStyle}
-                  closeButtonAriaLabel={toastOptions?.closeButtonAriaLabel}
-                  removeToast={removeToast}
                   toasts={toasts.filter((t) => t.position == toast.position)}
                   heights={heights.filter((h) => h.position == toast.position)}
                   setHeights={setHeights}
                   expandByDefault={expand}
                   gap={gap}
                   expanded={expanded}
-                  swipeDirections={props.swipeDirections}
                 />
               ))}
           </ol>

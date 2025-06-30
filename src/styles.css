@@ -51,6 +51,67 @@ html[dir='rtl'],
   transition: transform 400ms ease;
 }
 
+[data-sonner-toaster][data-expanded='true'] {
+  max-height: 400px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray8) var(--gray3);
+}
+
+[data-sonner-toaster][data-expanded='true'][data-y-position='bottom'] {
+  flex-direction: column-reverse;
+}
+
+[data-sonner-toaster][data-expanded='true'][data-y-position='top'] {
+  flex-direction: column;
+}
+
+/* Keep toasts positioned but within the flex flow */
+[data-sonner-toaster][data-expanded='true'] > li[data-sonner-toast] {
+  position: relative;
+}
+
+/* Override specific transform behaviors for expanded mode */
+[data-sonner-toaster][data-expanded='true'] > li[data-sonner-toast][data-mounted='true'] {
+  --y: translateY(0);
+}
+
+[data-sonner-toaster][data-expanded='true'] > li[data-sonner-toast][data-expanded='true'] {
+  --y: translateY(0);
+}
+
+/* Ensure proper stacking in expanded mode */
+[data-sonner-toaster][data-expanded='true'] > li[data-sonner-toast][data-expanded='false'][data-front='false'] {
+  height: auto !important;
+  --scale: 1 !important;
+  --y: translateY(0) !important;
+}
+
+[data-sonner-toaster][data-expanded='true'] > li[data-sonner-toast][data-expanded='false'][data-front='false'][data-styled='true'] > * {
+  opacity: 1 !important;
+}
+
+[data-sonner-toaster][data-expanded='true']::-webkit-scrollbar {
+  width: 8px;
+}
+
+[data-sonner-toaster][data-expanded='true']::-webkit-scrollbar-track {
+  background: var(--gray3);
+  border-radius: 10px;
+}
+
+[data-sonner-toaster][data-expanded='true']::-webkit-scrollbar-thumb {
+  background: var(--gray8);
+  border-radius: 10px;
+}
+
+[data-sonner-toaster][data-expanded='true']::-webkit-scrollbar-thumb:hover {
+  background: var(--gray9);
+}
+
 @media (hover: none) and (pointer: coarse) {
   [data-sonner-toaster][data-lifted='true'] {
     transform: none;
